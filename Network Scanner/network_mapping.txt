@@ -1,0 +1,74 @@
+# network_mapping.py
+from scapy.all import IP, TCP, sr1  # Import necessary classes and functions from Scapy
+import threading
+import logging
+from prettytable import PrettyTable
+
+# Setup basic configuration for logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+def scan_port(ip, port):
+    try:
+        packet = IP(dst=ip)/TCP(dport=port, flags="S")
+        response = sr1(packet, timeout=2, verbose=0)  # Increased timeout for better accuracy
+        if response and response.haslayer(TCP):
+            if response.getlayer(TCP).flags == 0x12:  # SYN-ACK indicates open port
+                return True
+            elif response.getlayer(TCP).flags == 0x14:  # RST-ACK indicates closed port
+                return False
+    except Exception as e:
+        logging.error(f"Error scanning port {port} on {ip}: {e}")
+    return False  # No response or other issues are treated as closed
+
+def detect_os(ip):
+    packet = IP(dst=ip)/TCP(dport=80, flags="S")
+    response = sr1(packet, timeout=1, verbose=0)
+    if response:
+        if response.ttl <= 64:
+            logging.info(f"Host {ip} is up. Detected OS: Linux/Unix")
+            return "Linux/Unix"
+        elif response.ttl <= 128:
+            logging.info(f"Host {ip} is up. Detected OS: Windows")
+            return "Windows"
+    else:
+        logging.warning(f"Host {ip} seems to be down.")
+    return "Unknown"
+
+def detect_services(ip, ports=None):
+    if ports is None:
+        ports = range(0, 101)  # Default range from 0 to 100
+    open_ports = {}
+    lock = threading.Lock()
+
+    def scan_and_update(port):
+        if scan_port(ip, port):
+            with lock:
+                open_ports[port] = 'Open'
+        else:
+            with lock:
+                open_ports[port] = 'Closed'
+
+    threads = [threading.Thread(target=scan_and_update, args=(port,)) for port in ports]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    return open_ports
+
+def format_service_info(service_info):
+    table = PrettyTable()
+    table.field_names = ["Port", "Status"]
+    for port, status in sorted(service_info.items()):
+        table.add_row([port, status])
+    return table
+
+# Example usage within the script (if needed for testing or standalone operation)
+if __name__ == "__main__":
+    ip_address = "192.168.1.156"  # Example IP
+    print(f"Scanning IP: {ip_address}")
+    os_info = detect_os(ip_address)
+    service_info = detect_services(ip_address)
+    print(f"OS Info: {os_info}")
+    print("Service Info:")
+    print(format_service_info(service_info))

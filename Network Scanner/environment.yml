@@ -1,0 +1,10 @@
+name: scanner_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12.4  # Updated Python version
+  - scapy
+  - pip
+  - pip:
+    - tk  # Ensuring tkinter is included for GUI components
